@@ -1399,7 +1399,7 @@ const renderDocumentDetails = () => {
             {incomingDocuments.length > 0 && (
               <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
                 <button
-                  className="action-button success"
+                  className={`action-button ${selectedDocIds.length === incomingDocuments.length ? 'danger' : 'success'}`}
                   onClick={() => {
                     const allSelected = incomingDocuments.every(doc => selectedDocIds.includes(doc._id));
                     const newSelectedDocIds = allSelected ? [] : incomingDocuments.map(doc => doc._id);
