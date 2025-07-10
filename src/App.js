@@ -2,21 +2,17 @@ import React, { useContext, useEffect, useState } from 'react';
 import { AppContext } from './AppProvider';
 import Home from './Home';
 import Documents from './Documents';
-import TrackDocument from './TrackDocument';import MyProfile from './MyProfile';
+import TrackDocument from './TrackDocument';
+import MyProfile from './MyProfile';
 import About from './About';
 import ConfirmationModal from './ConfirmationModal'; // Import the modal component
-import io from 'socket.io-client';
-
-
 
 const App = () => {
   const { isLoggedIn, setIsLoggedIn, currentPage, setCurrentPage, error, isMenuOpen, setIsMenuOpen, handleLogin, username, setUsername, password, setPassword, dateTime, user, setError } = useContext(AppContext);
   const [lastActivity, setLastActivity] = useState(Date.now());
-
   const [inactivityTime, setInactivityTime] = useState(1800000); // 30 minutes in ms
   const [isModalOpen, setIsModalOpen] = useState(false); // State for modal visibility
   const [modalMessage, setModalMessage] = useState(''); // State for modal message
-  
 
   useEffect(() => {
     const handleActivity = () => setLastActivity(Date.now());
@@ -218,8 +214,8 @@ const App = () => {
           <div className="footer-section">
             <h4>Contact</h4>
             <ul className="footer-contact">
-              <li><i className="fas fa-envelope"></i> support@deped-laoag.edu.ph</li>
-              <li><i className="fas fa-phone"></i> (077) 595-5959</li>
+              <li><i className="fas fa-envelope"></i> laoag.city@deped.gov.ph</li>
+              <li><i className="fas fa-phone"></i> (077) 771-3678</li>
               <li><i className="fas fa-map-marker-alt"></i> Barangay 23 San Matias, Laoag City</li>
             </ul>
           </div>
