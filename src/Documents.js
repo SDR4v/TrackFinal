@@ -1396,40 +1396,52 @@ const renderDocumentDetails = () => {
               <i className="fas fa-arrow-left"></i> Back
             </button>
             <h3>Incoming Documents</h3>
-            {selectedDocIds.length > 0 && (
-              <div style={{ marginBottom: '1rem' }}>
+            {incomingDocuments.length > 0 && (
+              <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
                 <button
                   className="action-button success"
-                  onClick={handleBulkAccept}
+                  onClick={() => {
+                    const allSelected = incomingDocuments.every(doc => selectedDocIds.includes(doc._id));
+                    const newSelectedDocIds = allSelected ? [] : incomingDocuments.map(doc => doc._id);
+                    setSelectedDocIds(newSelectedDocIds);
+                  }}
                 >
-                  <i className="fas fa-check"></i> Accept Selected ({selectedDocIds.length})
+                  <i className="fas fa-check-square"></i> {selectedDocIds.length === incomingDocuments.length ? 'Deselect All' : 'Select All'}
                 </button>
+                {selectedDocIds.length > 0 && (
+                  <button
+                    className="action-button success"
+                    onClick={handleBulkAccept}
+                  >
+                    <i className="fas fa-check"></i> Accept Selected ({selectedDocIds.length})
+                  </button>
+                )}
               </div>
             )}
             {incomingDocuments.length === 0 ? (
               <p>No incoming documents found.</p>
             ) : (
               <ul className="document-list">
-        {incomingDocuments.map((doc) => (
-          <li
-            key={doc._id}
-            className="document-item"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '0.5rem' }}
-          >
-            <input
-              type="checkbox"
-              checked={selectedDocIds.includes(doc._id)}
-              onChange={() => handleToggleSelect(doc._id)}
-            />
-            <div
-              onClick={() => handleViewDocument(doc)}
-              style={{ flex: '1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem' }}
-            >
-              <span style={{ whiteSpace: 'nowrap' }}><strong>{doc.title}</strong> (<span>{doc.documentId || doc._id}</span>)</span>
-              <span style={{ whiteSpace: 'nowrap' }}>Sent by: <strong>{doc.createdByUsername}</strong> (<span>{doc.department}</span>)</span>
-              <span style={{ whiteSpace: 'nowrap' }}>Status: <strong>{doc.status}</strong></span>
-              {doc.urgent && <span className="urgent-tag">Urgent</span>}
-            </div>
+                {incomingDocuments.map((doc) => (
+                  <li
+                    key={doc._id}
+                    className="document-item"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '0.5rem' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDocIds.includes(doc._id)}
+                      onChange={() => handleToggleSelect(doc._id)}
+                    />
+                    <div
+                      onClick={() => handleViewDocument(doc)}
+                      style={{ flex: '1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem' }}
+                    >
+                      <span style={{ whiteSpace: 'nowrap' }}><strong>{doc.title}</strong> (<span>{doc.documentId || doc._id}</span>)</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>Sent by: <strong>{doc.createdByUsername}</strong> (<span>{doc.department}</span>)</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>Status: <strong>{doc.status}</strong></span>
+                      {doc.urgent && <span className="urgent-tag">Urgent</span>}
+                    </div>
                     <div style={{ display: 'flex', gap: '1rem' }}>
                       <button
                         className="action-button success"
