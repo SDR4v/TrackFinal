@@ -1387,8 +1387,7 @@ const renderDocumentDetails = () => {
     if (selectedAction === 'route') {
       return renderRouteDocument();
     }
-
-    switch (selectedAction) {
+switch (selectedAction) {
       case 'incoming':
         return (
           <div>
@@ -1462,27 +1461,41 @@ const renderDocumentDetails = () => {
             )}
           </div>
         );
-      case 'accepted':
+case 'accepted':
         return (
           <div>
             <button className="action-button" onClick={handleBack}>
               <i className="fas fa-arrow-left"></i> Back
             </button>
             <h3>Accepted Documents</h3>
-            {selectedDocIds.length > 0 && (
+            {acceptedDocuments.length > 0 && (
               <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
                 <button
-                  className="action-button"
-                  onClick={handleBulkArchive}
+                  className={`action-button ${selectedDocIds.length === acceptedDocuments.length ? 'danger' : 'success'}`}
+                  onClick={() => {
+                    const allSelected = acceptedDocuments.every(doc => selectedDocIds.includes(doc._id));
+                    const newSelectedDocIds = allSelected ? [] : acceptedDocuments.map(doc => doc._id);
+                    setSelectedDocIds(newSelectedDocIds);
+                  }}
                 >
-                  <i className="fas fa-archive"></i> Archive Selected ({selectedDocIds.length})
+                  <i className="fas fa-check-square"></i> {selectedDocIds.length === acceptedDocuments.length ? 'Deselect All' : 'Select All'}
                 </button>
-                <button
-                  className="action-button success"
-                  onClick={handleBulkComplete}
-                >
-                  <i className="fas fa-check-circle"></i> Complete Selected ({selectedDocIds.length})
-                </button>
+                {selectedDocIds.length > 0 && (
+                  <>
+                    <button
+                      className="action-button"
+                      onClick={handleBulkArchive}
+                    >
+                      <i className="fas fa-archive"></i> Archive Selected ({selectedDocIds.length})
+                    </button>
+                    <button
+                      className="action-button success"
+                      onClick={handleBulkComplete}
+                    >
+                      <i className="fas fa-check-circle"></i> Complete Selected ({selectedDocIds.length})
+                    </button>
+                  </>
+                )}
               </div>
             )}
             {acceptedDocuments.length === 0 ? (
@@ -1544,81 +1557,95 @@ const renderDocumentDetails = () => {
       case 'mydocs':
         const createdDocs = documents.filter(doc => doc.userId.toString() === user._id && !doc.accepted);
         return (
-          <div>
-            <button className="action-button" onClick={handleBack}>
-              <i className="fas fa-arrow-left"></i> Back
+        <div>
+  <button className="action-button" onClick={handleBack}>
+    <i className="fas fa-arrow-left"></i> Back
+  </button>
+  <h3>My Documents</h3>
+  {createdDocs.length > 0 && (
+    <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
+      <button
+        className={`action-button ${selectedDocIds.length === createdDocs.length ? 'danger' : 'success'}`}
+        onClick={() => {
+          const allSelected = createdDocs.every(doc => selectedDocIds.includes(doc._id));
+          const newSelectedDocIds = allSelected ? [] : createdDocs.map(doc => doc._id);
+          setSelectedDocIds(newSelectedDocIds);
+        }}
+      >
+        <i className="fas fa-check-square"></i> {selectedDocIds.length === createdDocs.length ? 'Deselect All' : 'Select All'}
+      </button>
+      {selectedDocIds.length > 0 && (
+        <>
+          <button
+            className="action-button danger"
+            onClick={handleBulkDelete}
+          >
+            <i className="fas fa-trash"></i> Delete Selected ({selectedDocIds.length})
+          </button>
+          <button
+            className="action-button"
+            onClick={handleBulkArchive}
+          >
+            <i className="fas fa-archive"></i> Archive Selected ({selectedDocIds.length})
+          </button>
+        </>
+      )}
+    </div>
+  )}
+  <h4>Created Documents</h4>
+  {createdDocs.length === 0 ? (
+    <p>No created documents found.</p>
+  ) : (
+    <ul className="document-list">
+      {createdDocs.map((doc) => (
+        <li
+          key={doc._id}
+          className="document-item"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '0.5rem' }}
+        >
+          <input
+            type="checkbox"
+            checked={selectedDocIds.includes(doc._id)}
+            onChange={() => handleToggleSelect(doc._id)}
+          />
+          <div
+            onClick={() => handleViewDocument(doc)}
+            style={{ flex: '1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem' }}
+          >
+            <span style={{ whiteSpace: 'nowrap' }}><strong>{doc.title}</strong> (<span>{doc._id}</span>)</span>
+            <span style={{ whiteSpace: 'nowrap' }}>Sent by: <strong>{doc.createdByUsername}</strong> (<span>{doc.department}</span>)</span>
+            <span style={{ whiteSpace: 'nowrap' }}>Status: <strong>{doc.status}</strong></span>
+            {doc.urgent && <span className="urgent-tag">Urgent</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            <button
+              className="action-button danger"
+              onClick={() => handleDeleteDocument(doc._id)}
+            >
+              <i className="fas fa-trash"></i> Delete
             </button>
-            <h3>My Documents</h3>
-            {selectedDocIds.length > 0 && (
-              <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
-                <button
-                  className="action-button danger"
-                  onClick={handleBulkDelete}
-                >
-                  <i className="fas fa-trash"></i> Delete Selected ({selectedDocIds.length})
-                </button>
+            {doc.status !== 'Archived' && doc.status !== 'Completed' && (
+              <>
                 <button
                   className="action-button"
-                  onClick={handleBulkArchive}
+                  onClick={() => handleArchiveDocument(doc._id)}
                 >
-                  <i className="fas fa-archive"></i> Archive Selected ({selectedDocIds.length})
+                  <i className="fas fa-archive"></i> Archive
                 </button>
-              </div>
-            )}
-            <h4>Created Documents</h4>
-            {createdDocs.length === 0 ? (
-              <p>No created documents found.</p>
-            ) : (
-              <ul className="document-list">
-                {createdDocs.map((doc) => (
-                  <li
-                    key={doc._id}
-                    className="document-item"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '0.5rem' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedDocIds.includes(doc._id)}
-                      onChange={() => handleToggleSelect(doc._id)}
-                    />
-                    <div
-                      onClick={() => handleViewDocument(doc)}
-                      style={{ flex: '1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem' }}
-                    >
-                      <span style={{ whiteSpace: 'nowrap' }}><strong>{doc.title}</strong> (<span>{doc._id}</span>)</span>
-                      <span style={{ whiteSpace: 'nowrap' }}>Sent by: <strong>{doc.createdByUsername}</strong> (<span>{doc.department}</span>)</span>
-                      <span style={{ whiteSpace: 'nowrap' }}>Status: <strong>{doc.status}</strong></span>
-                      {doc.urgent && <span className="urgent-tag">Urgent</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: '1rem' }}>
-                      <button
-                        className="action-button danger"
-                        onClick={() => handleDeleteDocument(doc._id)}
-                      >
-                        <i className="fas fa-trash"></i> Delete
-                      </button>
-                      {doc.status !== 'Archived' && doc.status !== 'Completed' && (
-                        <>
-                          <button
-                            className="action-button"
-                            onClick={() => handleArchiveDocument(doc._id)}
-                          >
-                            <i className="fas fa-archive"></i> Archive
-                          </button>
-                          <button
-                            className="action-button warning"
-                            onClick={() => handleEditDocument(doc)}
-                          >
-                            <i className="fas fa-edit"></i> Edit
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                <button
+                  className="action-button warning"
+                  onClick={() => handleEditDocument(doc)}
+                >
+                  <i className="fas fa-edit"></i> Edit
+                </button>
+              </>
             )}
           </div>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
         );
       case 'add':
         return (
@@ -1726,21 +1753,33 @@ const renderDocumentDetails = () => {
             </button>
           </div>
         );
-      case 'archive':
+        case 'archive':
         return (
           <div>
             <button className="action-button" onClick={handleBack}>
               <i className="fas fa-arrow-left"></i> Back
             </button>
             <h3>My Archive</h3>
-            {selectedDocIds.length > 0 && (
+            {archivedDocuments.length > 0 && (
               <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
                 <button
-                  className="action-button primary"
-                  onClick={handleBulkUnarchive}
+                  className={`action-button ${selectedDocIds.length === archivedDocuments.length ? 'danger' : 'success'}`}
+                  onClick={() => {
+                    const allSelected = archivedDocuments.every(doc => selectedDocIds.includes(doc._id));
+                    const newSelectedDocIds = allSelected ? [] : archivedDocuments.map(doc => doc._id);
+                    setSelectedDocIds(newSelectedDocIds);
+                  }}
                 >
-                  <i className="fas fa-undo"></i> Unarchive Selected ({selectedDocIds.length})
+                  <i className="fas fa-check-square"></i> {selectedDocIds.length === archivedDocuments.length ? 'Deselect All' : 'Select All'}
                 </button>
+                {selectedDocIds.length > 0 && (
+                  <button
+                    className="action-button primary"
+                    onClick={handleBulkUnarchive}
+                  >
+                    <i className="fas fa-undo"></i> Unarchive Selected ({selectedDocIds.length})
+                  </button>
+                )}
               </div>
             )}
             {archivedDocuments.length === 0 ? (
@@ -1789,20 +1828,34 @@ const renderDocumentDetails = () => {
             </button>
             <h3>Trash</h3>
             <p className="trash-info">Documents in Trash will be permanently deleted after 30 days.</p>
-            {selectedDocIds.length > 0 && (
+            {(deletedCreatedDocs.length > 0 || deletedAcceptedDocs.length > 0) && (
               <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem' }}>
                 <button
-                  className="action-button success"
-                  onClick={handleBulkRestore}
+                  className={`action-button ${selectedDocIds.length === (deletedCreatedDocs.length + deletedAcceptedDocs.length) ? 'danger' : 'success'}`}
+                  onClick={() => {
+                    const allSelected = [...deletedCreatedDocs, ...deletedAcceptedDocs].every(doc => selectedDocIds.includes(doc._id));
+                    const newSelectedDocIds = allSelected ? [] : [...deletedCreatedDocs, ...deletedAcceptedDocs].map(doc => doc._id);
+                    setSelectedDocIds(newSelectedDocIds);
+                  }}
                 >
-                  <i className="fas fa-undo"></i> Restore Selected ({selectedDocIds.length})
+                  <i className="fas fa-check-square"></i> {selectedDocIds.length === (deletedCreatedDocs.length + deletedAcceptedDocs.length) ? 'Deselect All' : 'Select All'}
                 </button>
-                <button
-                  className="action-button danger"
-                  onClick={handleBulkPermanentDelete}
-                >
-                  <i className="fas fa-trash-alt"></i> Permanently Delete Selected ({selectedDocIds.length})
-                </button>
+                {selectedDocIds.length > 0 && (
+                  <>
+                    <button
+                      className="action-button success"
+                      onClick={handleBulkRestore}
+                    >
+                      <i className="fas fa-undo"></i> Restore Selected ({selectedDocIds.length})
+                    </button>
+                    <button
+                      className="action-button danger"
+                      onClick={handleBulkPermanentDelete}
+                    >
+                      <i className="fas fa-trash-alt"></i> Permanently Delete Selected ({selectedDocIds.length})
+                    </button>
+                  </>
+                )}
               </div>
             )}
             <h4>Deleted Created Documents</h4>
