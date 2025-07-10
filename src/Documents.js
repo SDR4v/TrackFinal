@@ -143,8 +143,6 @@ const Documents = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
-
-        
         credentials: 'include',
       })
         .then(res => {
@@ -163,8 +161,6 @@ const Documents = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
-
-        
         credentials: 'include',
       })
         .then(res => {
