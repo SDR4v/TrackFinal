@@ -1991,6 +1991,16 @@ const renderDocumentDetails = () => {
       default:
         return (
           <div className="document-grid">
+           <div className="document-card">
+              <div className="card-icon add">
+                <i className="fas fa-plus-circle"></i>
+              </div>
+              <h3>Add Documents</h3>
+              <p>Create new document entries</p>
+              <button className="card-button" onClick={() => handleActionSelect('add')}>
+                Add New
+              </button>
+            </div>
             <div className="document-card">
               <div className="card-icon incoming">
                 <i className="fas fa-inbox"></i>
@@ -2012,23 +2022,33 @@ const renderDocumentDetails = () => {
               </button>
             </div>
             <div className="document-card">
-              <div className="card-icon accepted">
-                <i className="fas fa-check-circle"></i>
-                              </div>
-              <h3>Accepted Documents</h3>
-              <p>Manage documents you have accepted</p>
-              <button className="card-button" onClick={() => handleActionSelect('accepted')}>
-                Manage Documents
-                              </button>
+              <div className="card-icon missed">
+                <i className="fas fa-exclamation-triangle"></i>
+              </div>
+              <h3>Missed Documents</h3>
+              <p>View unviewed or unaccepted documents</p>
+              <button className="card-button" onClick={() => handleActionSelect('missed')}>
+                View Missed
+              </button>
             </div>
             <div className="document-card">
-              <div className="card-icon add">
-                <i className="fas fa-plus-circle"></i>
+              <div className="card-icon completed">
+                <i className="fas fa-check-circle"></i>
               </div>
-              <h3>Add Document</h3>
-              <p>Create a new document</p>
-              <button className="card-button" onClick={() => handleActionSelect('add')}>
-                Create Document
+              <h3>Completed Documents</h3>
+              <p>View and track completed documents</p>
+              <button className="card-button" onClick={() => handleActionSelect('completed')}>
+                View Completed
+              </button>
+            </div>
+            <div className="document-card">
+              <div className="card-icon accepted">
+                <i className="fas fa-check-circle"></i>
+              </div>
+              <h3>Accepted Documents</h3>
+              <p>View and manage documents you've accepted</p>
+              <button className="card-button" onClick={() => handleActionSelect('accepted')}>
+                View Accepted
               </button>
             </div>
             <div className="document-card">
@@ -2036,7 +2056,7 @@ const renderDocumentDetails = () => {
                 <i className="fas fa-archive"></i>
               </div>
               <h3>My Archive</h3>
-              <p>View your archived documents</p>
+              <p>Access historical documents</p>
               <button className="card-button" onClick={() => handleActionSelect('archive')}>
                 View Archive
               </button>
@@ -2046,29 +2066,9 @@ const renderDocumentDetails = () => {
                 <i className="fas fa-trash"></i>
               </div>
               <h3>Trash</h3>
-              <p>Manage deleted documents</p>
+              <p>View deleted documents</p>
               <button className="card-button" onClick={() => handleActionSelect('trash')}>
                 View Trash
-              </button>
-            </div>
-            <div className="document-card">
-              <div className="card-icon completed">
-                <i className="fas fa-check-double"></i>
-              </div>
-              <h3>Completed Documents</h3>
-              <p>View completed documents</p>
-              <button className="card-button" onClick={() => handleActionSelect('completed')}>
-                View Completed
-              </button>
-            </div>
-            <div className="document-card">
-              <div className="card-icon missed">
-                <i className="fas fa-exclamation-triangle"></i>
-              </div>
-              <h3>Missed Documents</h3>
-              <p>View documents unviewed for 24+ hours</p>
-              <button className="card-button" onClick={() => handleActionSelect('missed')}>
-                View Missed
               </button>
             </div>
           </div>
