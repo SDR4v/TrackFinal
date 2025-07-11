@@ -1,6 +1,7 @@
 import React from 'react';
 
-const About = () => (
+const About = () => {
+  return (
   <div className="content-card">
     <div className="about-header">
       <h2 className="section-title" style={{ color: 'white' }}>About SDOLC Tracking System</h2>
@@ -122,10 +123,10 @@ const About = () => (
             <h4>UI/UX Designer</h4>
             <p><a href="https://www.facebook.com/jexzxlovshapw" target="_blank" rel="noopener noreferrer">Jeth-Jeth Gaor</a></p>
           </div>
-        </div>
+        </div>        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default About;
