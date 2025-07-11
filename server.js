@@ -6,6 +6,8 @@ const cors = require('cors');
 const session = require('express-session');
 const cron = require('node-cron');
 const moment = require('moment-timezone');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -59,12 +61,13 @@ const documentSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
   department: { type: String, required: true, trim: true },
   description: { type: String, required: true, trim: true },
+  remarks: { type: String, default: '', trim: true }, // Add remarks field
   deleted: { type: Boolean, default: false },
   deletedAt: { type: Date, default: null },
   urgent: { type: Boolean, default: false },
   documentType: { type: String, required: true, trim: true },
   purpose: { type: String, required: true, trim: true },
-  releaseTo: { type: String, required: true, trim: true },
+  releaseTo: { type: [String], required: true }, // Changed to array of strings
   viewed: { type: Boolean, default: false },
   viewedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   accepted: { type: Boolean, default: false },
@@ -76,7 +79,8 @@ const documentSchema = new mongoose.Schema({
     department: { type: String, required: true, trim: true },
     date: { type: Date, default: Date.now },
     routedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    routedByUsername: { type: String, default: null }
+    routedByUsername: { type: String, default: null },
+    remarks: { type: String, default: '', trim: true } // Add remarks to history entries
   }],
   fileUrl: { type: String, default: '' },
 }, {
@@ -110,16 +114,14 @@ io.on('connection', (socket) => {
   socket.on('trackDocument', async (query) => {
     try {
       const conditions = [];
-      if (mongoose.Types.ObjectId.isValid(query)) {
-        conditions.push({ _id: query });
-      }
+      // Remove ObjectId validation since documentId is now a string format
       conditions.push({ documentId: query });
       conditions.push({ title: { $regex: `^${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
       const docs = await Document.find({ $or: conditions });
       if (docs.length > 0) {
         docs.forEach(doc => {
-          socket.join(doc._id.toString());
-          io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, documentId: doc.documentId, status: doc.status });
+          socket.join(doc.documentId.toString());
+          io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, documentId: doc.documentId, status: doc.status });
         });
       }
     } catch (err) {
@@ -127,6 +129,29 @@ io.on('connection', (socket) => {
     }
   });
   socket.on('disconnect', () => console.log('Client disconnected'));
+});
+
+// Migration endpoint to fix existing absolute profile picture URLs
+app.post('/api/migrate-profile-pictures', async (req, res) => {
+  try {
+    res.json({ 
+      message: 'Profile picture feature has been removed', 
+      usersUpdated: 0 
+    });
+  } catch (err) {
+    console.error('Migration error:', err);
+    res.status(500).send('Migration failed: ' + err.message);
+  }
+});
+
+// Test endpoint to verify file serving
+app.get('/api/test-file-serving', (req, res) => {
+  res.json({
+    message: 'Profile picture feature has been removed',
+    uploadsDirectory: null,
+    files: [],
+    staticServingEnabled: false
+  });
 });
 
 // User routes
@@ -140,15 +165,30 @@ app.post('/api/register', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password) return res.status(400).send('Username and password are required');
-  User.findOne({ username, password, approved: true }).then(user => {
+  if (!username || !password) return res.status(400).send('Username/Email and password are required');
+  
+  console.log('Login attempt:', { input: username });
+  
+  // Try to find user by either username or email
+  const query = {
+    $or: [
+      { username: username, password, approved: true },
+      { email: username, password, approved: true }
+    ]
+  };
+  
+  User.findOne(query).then(user => {
+    console.log('User found:', user ? 'Yes' : 'No');
     if (user) {
       req.session.userId = user._id;
       res.json({ success: true, userId: user._id, username: user.username, department: user.department });
     } else {
       res.status(401).send('Invalid credentials or account not approved');
     }
-  }).catch(err => res.status(500).send('Error finding user: ' + err.message));
+  }).catch(err => {
+    console.error('Login error:', err);
+    res.status(500).send('Error finding user: ' + err.message);
+  });
 });
 
 app.get('/api/user/check', authenticate, (req, res) => {
@@ -217,6 +257,7 @@ app.put('/api/user/:id/password', (req, res) => {
     })
     .catch(err => res.status(500).send('Error finding user: ' + err.message));
 });
+
 // In server.js, before the document routes
 const officeCodeMap = {
   'Office of the SDS': '001',
@@ -314,35 +355,54 @@ const getOfficeName = (releaseTo) => {
   if (releaseTo.startsWith('Agency: ')) return releaseTo.replace('Agency: ', '');
   return releaseTo;
 };
+
+// Helper function to generate document ID based on primary destination
+const generateDocumentId = async (primaryReleaseTo) => {
+  const now = moment.tz('Asia/Manila');
+  const month = now.format('MM');
+  const year = now.format('YY');
+  const officeName = getOfficeName(primaryReleaseTo);
+  const officeCode = officeCodeMap[officeName];
+  
+  if (!officeCode) {
+    throw new Error(`Invalid office: ${primaryReleaseTo}`);
+  }
+
+  // Count documents for this office in the current month and year
+  const docCount = await Document.countDocuments({
+    documentId: { $regex: `^${month}${year}-${officeCode}-` },
+    createdAt: {
+      $gte: moment.tz('Asia/Manila').startOf('month').toDate(),
+      $lte: moment.tz('Asia/Manila').endOf('month').toDate()
+    }
+  });
+
+  // Generate sequential number (increment by 1)
+  const sequentialNumber = String(docCount + 1).padStart(4, '0');
+  return `${month}${year}-${officeCode}-${sequentialNumber}`;
+};
 // Document routes
 app.post('/api/documents', async (req, res) => {
   console.log('Creating document at:', new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
   try {
-    const { userId, title, description, documentType, purpose, releaseTo, urgent } = req.body;
+    const { userId, title, description, documentType, purpose, releaseTo, urgent, remarks } = req.body;
     if (!mongoose.Types.ObjectId.isValid(userId)) return res.status(400).send('Invalid User ID');
     const user = await User.findById(userId);
     if (!user) return res.status(404).send('User not found');
 
-    // Generate documentId
-    const now = moment.tz('Asia/Manila');
-    const month = now.format('MM');
-    const year = now.format('YY');
-    const officeName = getOfficeName(releaseTo);
-    const officeCode = officeCodeMap[officeName];
-    if (!officeCode) return res.status(400).send(`Invalid office: ${releaseTo}`);
+    // Ensure releaseTo is an array
+    const releaseToArray = Array.isArray(releaseTo) ? releaseTo : [releaseTo];
+    if (releaseToArray.length === 0) return res.status(400).send('At least one release destination is required');
 
-    // Count documents for this office in the current month and year
-    const docCount = await Document.countDocuments({
-      documentId: { $regex: `^${month}${year}-${officeCode}-` },
-      createdAt: {
-        $gte: moment.tz('Asia/Manila').startOf('month').toDate(),
-        $lte: moment.tz('Asia/Manila').endOf('month').toDate()
-      }
-    });
+    // Validate all destinations
+    for (const dest of releaseToArray) {
+      const officeName = getOfficeName(dest);
+      const officeCode = officeCodeMap[officeName];
+      if (!officeCode) return res.status(400).send(`Invalid office: ${dest}`);
+    }
 
-    // Generate sequential number (increment by 1)
-    const sequentialNumber = String(docCount + 1).padStart(4, '0');
-    const documentId = `${month}${year}-${officeCode}-${sequentialNumber}`;
+    // Generate documentId based on primary destination (first in array)
+    const documentId = await generateDocumentId(releaseToArray[0]);
 
     const document = new Document({
       documentId,
@@ -352,15 +412,23 @@ app.post('/api/documents', async (req, res) => {
       description,
       documentType,
       purpose,
-      releaseTo,
+      releaseTo: releaseToArray,
       department: user.department,
       urgent: !!urgent,
+      remarks: remarks || '',
       createdAt: new Date(),
-      history: [{ action: 'Created', department: user.department, date: new Date(), routedBy: userId, routedByUsername: user.username }],
+      history: [{ 
+        action: 'Created', 
+        department: user.department, 
+        date: new Date(), 
+        routedBy: userId, 
+        routedByUsername: user.username,
+        remarks: remarks || ''
+      }],
     });
 
     await document.save();
-    io.to(document._id.toString()).emit('documentUpdate', { id: document._id, documentId: document.documentId, action: 'created' });
+    io.to(document.documentId.toString()).emit('documentUpdate', { id: document.documentId, documentId: document.documentId, action: 'created' });
     res.status(201).json(document);
   } catch (err) {
     res.status(500).send('Error creating document: ' + err.message);
@@ -370,9 +438,9 @@ app.post('/api/documents', async (req, res) => {
 app.patch('/api/documents/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, documentType, purpose, releaseTo, urgent } = req.body;
-    if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).send('Invalid Document ID');
-    const document = await Document.findById(id);
+    const { title, description, documentType, purpose, releaseTo, urgent, remarks } = req.body;
+    // Remove id validation since documentId is now a string format
+    const document = await Document.findOne({ documentId: id });
     if (!document) return res.status(404).send('Document not found');
     if (document.userId.toString() !== req.user._id) {
       return res.status(403).send('Not authorized to edit this document');
@@ -380,17 +448,38 @@ app.patch('/api/documents/:id', authenticate, async (req, res) => {
     if (document.deleted || document.status === 'Archived' || document.status === 'Completed') {
       return res.status(403).send('Cannot edit deleted, archived, or completed document');
     }
+
+    // If releaseTo is provided, ensure it's an array and validate destinations
+    if (releaseTo) {
+      const releaseToArray = Array.isArray(releaseTo) ? releaseTo : [releaseTo];
+      if (releaseToArray.length === 0) return res.status(400).send('At least one release destination is required');
+      
+      for (const dest of releaseToArray) {
+        const officeName = getOfficeName(dest);
+        const officeCode = officeCodeMap[officeName];
+        if (!officeCode) return res.status(400).send(`Invalid office: ${dest}`);
+      }
+      document.releaseTo = releaseToArray;
+    }
+
     const user = await User.findById(req.user._id);
     document.title = title || document.title;
     document.description = description || document.description;
     document.documentType = documentType || document.documentType;
     document.purpose = purpose || document.purpose;
-    document.releaseTo = releaseTo || document.releaseTo;
     document.urgent = urgent !== undefined ? urgent : document.urgent;
+    document.remarks = remarks !== undefined ? remarks : document.remarks;
     document.updatedAt = new Date();
-    document.history.push({ action: 'Edited', department: user.department, date: new Date(), routedBy: req.user._id, routedByUsername: user.username });
+    document.history.push({ 
+      action: 'Edited', 
+      department: user.department, 
+      date: new Date(), 
+      routedBy: req.user._id, 
+      routedByUsername: user.username,
+      remarks: remarks || ''
+    });
     await document.save();
-    io.to(document._id.toString()).emit('documentUpdate', { id: document._id, action: 'edited' });
+    io.to(document.documentId.toString()).emit('documentUpdate', { id: document.documentId, action: 'edited' });
     res.json(document);
   } catch (err) {
     res.status(500).send('Error updating document: ' + err.message);
@@ -407,7 +496,7 @@ app.get('/api/documents/:userId', authenticate, async (req, res) => {
       $or: [
         { userId, deleted: false },
         { acceptedBy: userId, deleted: false },
-        { releaseTo: user.department, deleted: false }
+        { releaseTo: { $in: [user.department] }, deleted: false } // Check if user's department is in the releaseTo array
       ]
     }).sort({ createdAt: -1 });
     // Enhanced debug log to verify history content
@@ -436,7 +525,7 @@ app.get('/api/document/:id', authenticate, async (req, res) => {
     const user = await User.findById(req.user._id);
     if (document.userId.toString() !== req.user._id && 
         (!document.acceptedBy || document.acceptedBy.toString() !== req.user._id) && 
-        document.releaseTo !== user.department) {
+        !document.releaseTo.includes(user.department)) { // Check if user's department is in the releaseTo array
       return res.status(403).send('Not authorized to view this document');
     }
     if (document.deleted && document.userId.toString() !== req.user._id && 
@@ -452,34 +541,64 @@ app.get('/api/document/:id', authenticate, async (req, res) => {
 
 app.get('/api/document', authenticate, async (req, res) => {
   try {
-    const { query } = req.query;
-    if (!query) return res.status(400).send('Query parameter is required');
+    const { query, documentType, unit } = req.query;
     
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).send('User not found');
 
-    const conditions = [];
-    if (mongoose.Types.ObjectId.isValid(query)) {
-      conditions.push({ _id: query });
-    }
-    conditions.push({ documentId: query });
-    conditions.push({ title: { $regex: `^${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
-
-    const docs = await Document.find({
-      $and: [
-        { $or: conditions },
-        { deleted: false },
-        {
-          $or: [
-            { userId: req.user._id },
-            { acceptedBy: req.user._id, status: 'Completed' },
-            { releaseTo: user.department }
-          ]
-        }
+    let searchCriteria = {
+      deleted: false,
+      $or: [
+        { userId: req.user._id },
+        { acceptedBy: req.user._id, status: 'Completed' },
+        { releaseTo: { $in: [user.department] } } // Check if user's department is in the releaseTo array
       ]
-    });
+    };
+
+    // Build additional search criteria
+    const additionalCriteria = [];
+
+    if (query) {
+      const conditions = [];
+      if (mongoose.Types.ObjectId.isValid(query)) {
+        conditions.push({ _id: query });
+      }
+      conditions.push({ documentId: query });
+      conditions.push({ title: { $regex: `^${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } });
+      conditions.push({ title: { $regex: query, $options: 'i' } });
+      conditions.push({ description: { $regex: query, $options: 'i' } });
+      additionalCriteria.push({ $or: conditions });
+    }
+
+    if (documentType) {
+      additionalCriteria.push({ documentType: documentType });
+    }
+
+    if (unit) {
+      // Handle unit search - can search by department or releaseTo
+      const unitConditions = [];
+      const unitName = unit.replace(/^(Unit:|School:|Private School:|Agency:)\s*/, '');
+      unitConditions.push({ department: { $regex: unitName, $options: 'i' } });
+      unitConditions.push({ releaseTo: { $in: [unit] } }); // Check if unit is in the releaseTo array
+      additionalCriteria.push({ $or: unitConditions });
+    }
+
+    // If we have additional criteria, add them to the search
+    if (additionalCriteria.length > 0) {
+      searchCriteria.$and = additionalCriteria;
+    } else if (!query && !documentType && !unit) {
+      return res.status(400).send('At least one search parameter is required');
+    }
+
+    console.log('Search criteria:', JSON.stringify(searchCriteria, null, 2));
+
+    const docs = await Document.find(searchCriteria)
+      .sort({ createdAt: -1 })
+      .limit(50) // Limit results to prevent overwhelming the UI
+      .exec();
 
     if (docs.length === 0) return res.status(404).send('No documents found');
+    console.log(`Found ${docs.length} documents`);
     res.json(docs);
   } catch (err) {
     console.error('Error fetching documents:', err);
@@ -490,14 +609,15 @@ app.get('/api/document', authenticate, async (req, res) => {
 app.put('/api/document/:id/view', async (req, res) => {
   const { userId } = req.body;
   const docId = req.params.id;
-  if (!mongoose.Types.ObjectId.isValid(docId) || !mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send('Invalid Document ID or User ID');
+  // Remove docId validation since documentId is now a string format
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).send('Invalid User ID');
   }
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send('User not found');
-    const doc = await Document.findByIdAndUpdate(
-      docId,
+    const doc = await Document.findOneAndUpdate(
+      { documentId: docId },
       { 
         viewed: true,
         $addToSet: { viewedBy: userId },
@@ -506,7 +626,7 @@ app.put('/api/document/:id/view', async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).send('Document not found');
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'viewed' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'viewed' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error marking document as viewed: ' + err.message);
@@ -516,14 +636,15 @@ app.put('/api/document/:id/view', async (req, res) => {
 app.put('/api/document/:id/accept', async (req, res) => {
   const { userId } = req.body;
   const docId = req.params.id;
-  if (!mongoose.Types.ObjectId.isValid(docId) || !mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send('Invalid Document ID or User ID');
+  // Remove docId validation since documentId is now a string format
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).send('Invalid User ID');
   }
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send('User not found');
-    const doc = await Document.findByIdAndUpdate(
-      docId,
+    const doc = await Document.findOneAndUpdate(
+      { documentId: docId },
       { 
         accepted: true,
         acceptedBy: userId,
@@ -534,7 +655,7 @@ app.put('/api/document/:id/accept', async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).send('Document not found');
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'accepted' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'accepted' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error accepting document: ' + err.message);
@@ -544,18 +665,30 @@ app.put('/api/document/:id/accept', async (req, res) => {
 app.put('/api/documents/:id/route', async (req, res) => {
   try {
     const docId = req.params.id;
-    const { routeTo, userId } = req.body;
-    if (!mongoose.Types.ObjectId.isValid(docId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).send('Invalid Document ID or User ID');
+    const { routeTo, userId, remarks } = req.body;
+    // Remove docId validation since documentId is now a string format
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).send('Invalid User ID');
     }
     if (!routeTo) {
       return res.status(400).send('Route destination is required');
     }
+
+    // Ensure routeTo is an array and validate destinations
+    const routeToArray = Array.isArray(routeTo) ? routeTo : [routeTo];
+    if (routeToArray.length === 0) return res.status(400).send('At least one route destination is required');
+    
+    for (const dest of routeToArray) {
+      const officeName = getOfficeName(dest);
+      const officeCode = officeCodeMap[officeName];
+      if (!officeCode) return res.status(400).send(`Invalid office: ${dest}`);
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).send('User not found');
     }
-    const doc = await Document.findById(docId);
+    const doc = await Document.findOne({ documentId: docId });
     if (!doc) {
       return res.status(404).send('Document not found');
     }
@@ -565,7 +698,8 @@ app.put('/api/documents/:id/route', async (req, res) => {
     if (doc.status === 'Archived' || doc.status === 'Completed') {
       return res.status(403).send('Cannot route archived or completed document');
     }
-    doc.releaseTo = routeTo;
+    
+    doc.releaseTo = routeToArray;
     doc.accepted = false;
     doc.acceptedBy = null;
     doc.acceptedByUsername = null;
@@ -573,13 +707,14 @@ app.put('/api/documents/:id/route', async (req, res) => {
     doc.updatedAt = new Date();
     doc.history.push({
       action: 'Routed',
-      department: routeTo,
+      department: routeToArray.join(', '), // Show all destinations in history
       date: new Date(),
       routedBy: userId,
-      routedByUsername: user.username
+      routedByUsername: user.username,
+      remarks: remarks || ''
     });
     await doc.save();
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'routed', routeTo });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'routed', routeTo: routeToArray });
     res.json(doc);
   } catch (err) {
     console.error('Error routing document:', err);
@@ -590,14 +725,15 @@ app.put('/api/documents/:id/route', async (req, res) => {
 app.put('/api/document/:id/release', async (req, res) => {
   const { userId, department } = req.body;
   const docId = req.params.id;
-  if (!mongoose.Types.ObjectId.isValid(docId) || !mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send('Invalid Document ID or User ID');
+  // Remove docId validation since documentId is now a string format
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).send('Invalid User ID');
   }
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send('User not found');
-    const doc = await Document.findByIdAndUpdate(
-      docId,
+    const doc = await Document.findOneAndUpdate(
+      { documentId: docId },
       { 
         status: 'Completed',
         updatedAt: new Date(),
@@ -606,7 +742,7 @@ app.put('/api/document/:id/release', async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).send('Document not found');
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'released' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'released' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error releasing document: ' + err.message);
@@ -622,7 +758,7 @@ app.get('/api/documents/:userId/incoming', async (req, res) => {
     const today = getLastResetTime();
     const tomorrow = today.clone().add(1, 'day');
     const documents = await Document.find({
-      releaseTo: user.department,
+      releaseTo: { $in: [user.department] }, // Check if user's department is in the releaseTo array
       accepted: false,
       deleted: false,
       createdAt: { $gte: today.toDate(), $lt: tomorrow.toDate() }
@@ -700,10 +836,9 @@ app.get('/api/documents/:userId/trash', async (req, res) => {
 app.put('/api/documents/:id/delete', async (req, res) => {
   try {
     const docId = req.params.id;
-    const isMongoId = mongoose.Types.ObjectId.isValid(docId);
-    const query = isMongoId ? { _id: docId } : { documentId: docId };
+    // Always use documentId since it's now a string format
     const document = await Document.findOneAndUpdate(
-      query,
+      { documentId: docId },
       { deleted: true, deletedAt: new Date() },
       { new: true }
     );
@@ -717,7 +852,7 @@ app.put('/api/documents/:id/delete', async (req, res) => {
       routedByUsername: user ? user.username : 'Unknown User'
     });
     await document.save();
-    io.to(document._id.toString()).emit('documentUpdate', { id: document._id, documentId: document.documentId, action: 'deleted' });
+    io.to(document.documentId.toString()).emit('documentUpdate', { id: document.documentId, documentId: document.documentId, action: 'deleted' });
     res.json(document);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -727,10 +862,10 @@ app.put('/api/documents/:id/delete', async (req, res) => {
 app.delete('/api/documents/:id', async (req, res) => {
   try {
     const docId = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(docId)) return res.status(400).send('Invalid Document ID');
-    const document = await Document.findByIdAndDelete(docId);
+    // Remove docId validation since documentId is now a string format
+    const document = await Document.findOneAndDelete({ documentId: docId });
     if (!document) return res.status(404).json({ message: 'Document not found' });
-    io.to(docId.toString()).emit('documentUpdate', { id: docId, action: 'permanentlyDeleted' });
+    io.to(document.documentId.toString()).emit('documentUpdate', { id: document.documentId, action: 'permanentlyDeleted' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Error permanently deleting document: ' + err.message });
@@ -739,7 +874,7 @@ app.delete('/api/documents/:id', async (req, res) => {
 
 app.put('/api/documents/:id/restore', async (req, res) => {
   try {
-    const document = await Document.findById(req.params.id);
+    const document = await Document.findOne({ documentId: req.params.id });
     if (!document) return res.status(404).json({ message: 'Document not found' });
     const daysSinceDeletion = (new Date() - new Date(document.deletedAt)) / (1000 * 60 * 60 * 24);
     if (daysSinceDeletion >= 30) {
@@ -756,7 +891,7 @@ app.put('/api/documents/:id/restore', async (req, res) => {
       routedByUsername: user ? user.username : 'Unknown User'
     });
     await document.save();
-    io.to(document._id.toString()).emit('documentUpdate', { id: document._id, action: 'restored' });
+    io.to(document.documentId.toString()).emit('documentUpdate', { id: document.documentId, action: 'restored' });
     res.json(document);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -809,8 +944,8 @@ app.get('/api/documents/:userId/stats', async (req, res) => {
       urgent: await Document.countDocuments({
         urgent: true,
         deleted: false,
-        createdAt: { $gte: today.toDate(), $lt: tomorrow.toDate() },
-        $or: [{ userId }, { acceptedBy: userId }, { releaseTo: user.department }]
+        accepted: false,
+        $or: [{ userId }, { releaseTo: user.department }]
       }),
       missed: await Document.countDocuments({
         releaseTo: user.department,
@@ -900,13 +1035,13 @@ app.get('/api/documents/:userId/urgent', async (req, res) => {
     if (!user) return res.status(404).send('User not found');
     const today = getLastResetTime();
     const tomorrow = today.clone().add(1, 'day');
+
     const documents = await Document.find({
       urgent: true,
       deleted: false,
-      createdAt: { $gte: today.toDate(), $lt: tomorrow.toDate() },
+      accepted: false,
       $or: [
         { userId },
-        { acceptedBy: userId },
         { releaseTo: user.department }
       ]
     }).sort({ createdAt: -1 });
@@ -953,11 +1088,11 @@ app.get('/api/documents/:userId/archive', async (req, res) => {
 app.put('/api/documents/:id/archive', async (req, res) => {
   try {
     const docId = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(docId)) return res.status(400).send('Invalid Document ID');
+    // Remove docId validation since documentId is now a string format
     const user = await User.findById(req.body.userId);
     if (!user) return res.status(404).send('User not found');
-    const doc = await Document.findByIdAndUpdate(
-      docId,
+    const doc = await Document.findOneAndUpdate(
+      { documentId: docId },
       { 
         status: 'Archived',
         $push: { history: { action: 'Archived', department: req.body.department || user.department, date: new Date(), routedBy: req.body.userId, routedByUsername: user.username } }
@@ -965,7 +1100,7 @@ app.put('/api/documents/:id/archive', async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).send('Document not found');
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'archived' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'archived' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error archiving document: ' + err.message);
@@ -975,8 +1110,8 @@ app.put('/api/documents/:id/archive', async (req, res) => {
 app.put('/api/documents/:id/unarchive', async (req, res) => {
   try {
     const docId = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(docId)) return res.status(400).send('Invalid Document ID');
-    const doc = await Document.findById(docId);
+    // Remove docId validation since documentId is now a string format
+    const doc = await Document.findOne({ documentId: docId });
     if (!doc) return res.status(404).send('Document not found');
     if (doc.status !== 'Archived') return res.status(400).send('Document is not archived');
     const user = await User.findById(req.body.userId);
@@ -990,7 +1125,7 @@ app.put('/api/documents/:id/unarchive', async (req, res) => {
       routedByUsername: user.username
     });
     await doc.save();
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'unarchived' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'unarchived' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error unarchiving document: ' + err.message);
@@ -1000,11 +1135,11 @@ app.put('/api/documents/:id/unarchive', async (req, res) => {
 app.put('/api/documents/:id/complete', async (req, res) => {
   try {
     const docId = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(docId)) return res.status(400).send('Invalid Document ID');
+    // Remove docId validation since documentId is now a string format
     const user = await User.findById(req.body.userId);
     if (!user) return res.status(404).send('User not found');
-    const doc = await Document.findByIdAndUpdate(
-      docId,
+    const doc = await Document.findOneAndUpdate(
+      { documentId: docId },
       { 
         status: 'Completed',
         updatedAt: new Date(),
@@ -1013,7 +1148,7 @@ app.put('/api/documents/:id/complete', async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).send('Document not found');
-    io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'completed' });
+    io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'completed' });
     res.json(doc);
   } catch (err) {
     res.status(500).send('Error marking document as completed: ' + err.message);
@@ -1038,7 +1173,7 @@ cron.schedule('0 8 * * *', async () => {
         date: new Date(),
       });
       await doc.save();
-      io.to(doc._id.toString()).emit('documentUpdate', { id: doc._id, action: 'missed' });
+      io.to(doc.documentId.toString()).emit('documentUpdate', { id: doc.documentId, action: 'missed' });
     }
   } catch (err) {
     console.error('Error in missed documents cron job:', err);
